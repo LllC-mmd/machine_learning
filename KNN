@@ -1,0 +1,96 @@
+import numpy as np
+import os
+from PIL import Image
+
+def load_data(path, index):
+    path = path + str(index)
+    counter = 0
+    images = np.array([[]])
+
+    for root,dirs,files in os.walk(path):
+        for f in files:
+            abs_path = os.path.join(root,f)
+            image = Image.open(abs_path)
+            image_array = np.array(image)
+            # flatten to 1-D vector; image_f: 784
+            image_f = image_array.flatten()
+            # add the new flattened image to our images set for training
+            if counter == 0:
+                images = np.concatenate((images, np.array([image_f])),axis=1)
+            else:
+                images = np.concatenate((images, np.array([image_f])))
+            # images' shape: (num_img, 784) # (1, num_img*784)
+            counter += 1
+        print(images.shape)
+
+    return images, counter                            # images: [num_image, 784]
+
+def max_label(array):
+    u, counter = np.unique(array, return_counts=True)
+    index = np.argmax(counter)
+    return u[index]
+
+def KNN(test_file_name, k):
+    train_images = np.array([[]])
+    train_label = np.array([])
+    for i in range(0,10):
+        label = str(i)
+        images, counter = load_data("D:\\HW2\\dataset\\train\\",i)
+        if i == 0:
+            train_images = images
+        else:
+            train_images = np.concatenate((train_images, images))
+            # train_images' shape: (total_train_img, 784)
+        for j in range(0, counter):
+            train_label = np.append(train_label, i)
+        print("label %d has been loaded"%(i))
+
+    test_images = np.array([[]])
+    test_label = np.array([])
+    for i in range(0,10):
+        label = str(i)
+        images, counter = load_data(test_file_name,i)
+        if i == 0:
+            test_images = images
+        else:
+            test_images = np.concatenate((test_images, images))
+            # test_images' shape: (total_test_img, 784)
+        for j in range(0, counter):
+            test_label = np.append(test_label, i)
+
+    print("Data loaded successfully")
+    print(train_images.shape)  # output: (60000, 784)
+    print(test_images.shape)   # output: (10000, 784)
+
+    counter = 0
+    error_times = 0
+
+    for test_image in test_images:  # test_label's shape: [total_test_img, 784]
+                                    # test_image's shape: [784]
+        # E distance between this test_image and all train images
+        distance = np.array([])
+        for train_image in train_images:
+            d = np.linalg.norm(test_image - train_image)
+            distance = np.append(distance, d)
+        sort_index = distance.argsort()
+
+        top_k = np.array([])
+        for m in range(0, k):
+            top_k = np.append(top_k, train_label[sort_index[m]])
+        predict_label = max_label(top_k)
+        print(predict_label)
+
+        if predict_label != test_label[counter]:
+            error_times += 1
+
+        counter += 1
+        print(str(counter)+" test(s) completed!")
+
+    error_rate = error_times/counter
+    return error_rate
+
+
+error_rate = KNN("D:\\HW2\\dataset\\test\\",10)
+print("The error rate is %f"%(error_rate))
+
+
