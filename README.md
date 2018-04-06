@@ -1,3 +1,3 @@
 # machine_learning
-KNN
+KNN,
 Naive Bayes
