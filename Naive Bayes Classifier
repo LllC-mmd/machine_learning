@@ -1,0 +1,136 @@
+import numpy as np
+import os
+from PIL import Image
+
+def load_data(path, index):
+    path = path + str(index)
+    counter = 0
+    images = np.array([[]])
+
+    for root,dirs,files in os.walk(path):
+        for f in files:
+            abs_path = os.path.join(root,f)
+            image = Image.open(abs_path)
+            image_array = np.array(image)
+            # flatten to 1-D vector; image_f: 784
+            image_f = image_array.flatten()
+            # add the new flattened image to our images set for training
+            if counter == 0:
+                images = np.concatenate((images, np.array([image_f])),axis=1)
+            else:
+                images = np.concatenate((images, np.array([image_f])))
+            # images' shape: (num_img, 784) # (1, num_img*784)
+            counter += 1
+        print(images.shape)
+
+    return images, counter                            # images: [num_image, 784]
+
+
+# First, calculate how many times number from 0 to k appear in 1D array(number of feature's values: k+1)
+# And then use Laplace adjustment
+# return probability in shape: (k+1)
+# take log() to prevent underflow
+def prob(array, k):
+    elements, counts = np.unique(array, return_counts=True)
+    dic = dict(zip(*[elements, counts]))
+    probability = np.zeros(k+1)
+    sum_up = sum([dic[i] for i in dic])
+
+    for i in range(0, k+1):
+        if i in dic:
+            probability[i] = (dic[i]+1)/(sum_up+k+1)
+        else:
+            probability[i] = 1/(sum_up+k+1)
+    return np.log(probability)
+
+
+def NBC(test_file_name):
+    train_images = np.array([[]])
+    train_label = np.array([])
+    train_counter = np.zeros(10)
+    train_index = np.zeros(10)
+    for i in range(0,10):
+        label = i
+        images, counter = load_data("D:\\HW3\\dataset\\train\\",i)
+        train_counter[i] = counter
+        train_index[i] = sum(train_counter)
+        if i == 0:
+            train_images = images
+        else:
+            train_images = np.concatenate((train_images, images))
+            # train_images' shape: (total_train_img, 784)
+        train_label_i = np.array([label for j in range(0, counter)])
+        train_label = np.append(train_label, train_label_i)
+
+        print("label %d has been loaded"%(i))
+
+    test_images = np.array([[]])
+    test_label = np.array([])
+    test_counter = np.zeros(10)
+    for i in range(0,10):
+        label = i
+        images, counter = load_data(test_file_name,i)
+        test_counter[i] = counter
+        if i == 0:
+            test_images = images
+        else:
+            test_images = np.concatenate((test_images, images))
+            # test_images' shape: (total_test_img, 784)
+        test_label_i = np.array([label for j in range(0, counter)])
+        test_label = np.append(test_label, test_label_i)
+
+    print("Data loaded successfully")
+    print(train_images.shape)  # output: (60000, 784)
+    print(test_images.shape)   # output: (10000, 784)
+
+    counter = 0
+    error_times = 0
+
+    # calculate P(X)
+    # sum_x = sum(train_counter) is same
+    # prob_x = np.array([train_counter[i]/sum_x for i in range(0, 10)])
+    prob_x = np.log(train_counter)
+
+    # calculate P(C|X), shape: [10, 784, 256]
+    # we have 784 features and each feature has 256 possible value from 0 to 255
+    # train_images' shape: [60000, 784]
+    prob_cx = np.zeros((10,784,256))
+    for i in range(0,10):
+        if i == 0:
+            for j in range(0,784):
+                probability_ij = prob(train_images[0:int(train_index[i]),j],255)
+                # probability_ij shape: (256)
+                # probability_ij is P(C_j|X_i), the probability of j-th feature conditioned on X_i = 1,2,…,10
+                prob_cx[i,j] = probability_ij
+        else:
+            for j in range(0,784):
+                probability_ij = prob(train_images[int(train_index[i-1]):int(train_index[i]),j],255)
+                prob_cx[i,j] = probability_ij
+
+    # calculate P(X) propto P(C|X_i)P(X_i)
+    # = P(C_1|X_i)P(C_2|X_i)…P(C_784|X_i)P(X_i)
+    for test_image in test_images:  # test_images's shape: [10000, 784]
+        prob_test = np.zeros(10)
+        d = 0
+        for grey_value in test_image:
+            # prob_cx[i,:,int(grey_value)] shape: (784)
+            prob_test_cxt = [prob_cx[i,d,int(grey_value)] for i in range(0,10)]
+            prob_test += prob_x
+            prob_test += prob_test_cxt
+            d += 1
+        predict_label = np.argmax(prob_test)
+
+        if predict_label != test_label[counter]:
+            error_times += 1
+
+        counter += 1
+        print(str(counter)+" test(s) completed!")
+        print(predict_label)
+
+    error_rate = error_times/counter
+    return error_rate
+
+
+error_rate = NBC("D:\\HW3\\dataset\\test\\")
+print("The error rate is %f"%(error_rate))
+
