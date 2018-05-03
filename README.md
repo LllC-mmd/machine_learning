@@ -1,3 +1,5 @@
 # machine_learning
 KNN,
-Naive Bayes
+Naive Bayes,
+SVM,
+CNN_MNIST
