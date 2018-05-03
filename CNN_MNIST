@@ -1,0 +1,230 @@
+import numpy as np
+import tensorflow as tf
+import os
+os.environ["CUDA_VISIBLE_DEVICES"]="-1"
+from PIL import Image
+#from tensorflow.python import debug as tfdbg
+
+
+def load_data(path, index):
+    path = path + str(index)
+    counter = 0
+    images = np.array([[]])
+    for root,dirs,files in os.walk(path):
+        for f in files:
+            abs_path = os.path.join(root,f)
+            image = Image.open(abs_path)
+            image_array = np.array(image)
+            # flatten to 1-D vector; image_f: 784
+            image_f = image_array.flatten()
+            # add the new flattened image to our images set for training
+            if counter == 0:
+                images = np.concatenate((images, np.array([image_f])),axis=1)
+            else:
+                images = np.concatenate((images, np.array([image_f])))
+            # images' shape: (num_img, 784) # (1, num_img*784)
+            counter += 1
+        print(images.shape)
+    return images, counter                            # images: [num_image, 784]
+
+
+# define convolutional layer with ReLU activations
+def conv_relu(inputs, filters, kernel_size, stride, padding, scope_name):
+    # input: [batch, in_height, in_width, channels]
+    # kernels: [filter_height, filter_width, in_channels, out_channels]
+    # filters: the number of filters
+    with tf.variable_scope(scope_name, reuse=tf.AUTO_REUSE) as scope:
+        # set reuse=tf.AUTO_REUSE to reuse variables in different scopes/layers
+        in_channels = inputs.shape[-1]
+        kernel = tf.get_variable("kernel", [kernel_size, kernel_size, in_channels, filters],
+                                 initializer=tf.truncated_normal_initializer())
+        biases = tf.get_variable("biases", [filters],
+                                 initializer=tf.random_normal_initializer())
+        conv = tf.nn.conv2d(inputs, kernel, strides=[1, stride, stride, 1], padding=padding) # 1 image, 1 channel
+    return tf.nn.relu(conv+biases, name=scope_name)
+
+
+# define pooling layer option
+def max_pool(inputs, kernel_size, stride, padding="VALID", scope_name="pool"):
+    with tf.variable_scope(scope_name, reuse=tf.AUTO_REUSE) as scope:
+        pool = tf.nn.max_pool(inputs, ksize=[1, kernel_size, kernel_size, 1],
+                              strides=[1, stride, stride, 1], padding=padding)
+    return pool
+
+
+# define fully connected layer option
+def fully_connected(inputs, out_dim, scope_name="fc"):
+    with tf.variable_scope(scope_name, reuse=tf.AUTO_REUSE) as scope:
+        in_dim = inputs.shape[-1]
+        w = tf.get_variable("weights", [in_dim, out_dim],
+                            initializer=tf.truncated_normal_initializer())
+        b = tf.get_variable("biases", [out_dim],
+                            initializer=tf.constant_initializer(0.0))
+        out = tf.matmul(inputs, w)+ b
+        return out
+
+
+class cnn_mnist(object):
+    def __init__(self, test_data):
+        self.lr = 0.001
+        self.batch_size = 100
+        self.keep_prob = tf.constant(0.8)
+        self.gstep = tf.Variable(0, dtype=tf.int32, trainable=False, name="global_step")
+        self.n_classes = 10
+        self.n_test = 10000
+        self.skip_step = 20
+        self.training = True
+        self.test_address = test_data
+
+    # ger data from png files and convert them to tensorflow datasets by tf.data.x
+    def get_data(self):
+        with tf.name_scope("data"):
+            train_images = np.array([[]])
+            train_label = np.array([[]])
+            for i in range(0, 10):
+                label = int(i)
+                images, counter = load_data("D:\\HW4\\dataset\\train\\", i)
+                if i == 0:
+                    train_images = images
+                    train_label = np.zeros((counter, 10))
+                    train_label[np.arange(counter), label] = 1
+                else:
+                    train_images = np.concatenate((train_images, images))
+                    train_label_i = np.zeros((counter, 10))
+                    train_label_i[np.arange(counter), label] = 1
+                    train_label = np.concatenate((train_label, train_label_i))
+                    # train_images' shape: (total_train_img, 784)
+                    # train_label's shape: (total_train_label, 10)
+                print("label %d has been loaded" % (i))
+
+            test_images = np.array([[]])
+            test_label = np.array([[]])
+            for i in range(0, 10):
+                label = int(i)
+                images, counter = load_data(self.test_address, i)
+                if i == 0:
+                    test_images = images
+                    test_label = np.zeros((counter, 10))
+                    test_label[np.arange(counter), label] = 1
+                else:
+                    test_images = np.concatenate((test_images, images))
+                    test_label_i = np.zeros((counter, 10))
+                    test_label_i[np.arange(counter), label] = 1
+                    test_label = np.concatenate((test_label, test_label_i))
+            test_imgs = np.float32(test_images)
+
+            # use indices to random permute the training sets
+            indices = np.random.permutation(train_label.shape[0])
+            train_idx = np.int64(indices)
+            train_images = np.float32(train_images)
+            train_imgs = train_images[train_idx, :]
+            train_labs = train_label[train_idx, :]
+            # create training dataset
+            train_data = tf.data.Dataset.from_tensor_slices((train_imgs, train_labs))
+            train_data = train_data.shuffle(10000)
+            train_data = train_data.batch(self.batch_size)
+
+            test_data = tf.data.Dataset.from_tensor_slices((test_imgs, test_label))
+            test_data = test_data.batch(self.batch_size)
+            # create a Iterator with the structure which is not bound to a particular dataset
+            # and should be initialized with Iterator.make_initializer
+            iterator = tf.data.Iterator.from_structure(train_data.output_types, train_data.output_shapes)
+            img, self.label = iterator.get_next()
+            self.img = tf.reshape(img, shape=[-1, 28, 28, 1])
+            self.train_init = iterator.make_initializer(train_data)
+            self.test_init = iterator.make_initializer(test_data)
+
+    def mnist_model(self):
+        conv1 = conv_relu(inputs=self.img, filters=32, kernel_size=5, stride=1, padding="SAME", scope_name="conv1")
+        # Layer 1: 32 filters with size 5*5
+        pool1 = max_pool(inputs=conv1, kernel_size=2, stride=2, scope_name="pool1")
+        conv2 = conv_relu(inputs=pool1, filters=64, kernel_size=5, stride=1, padding="SAME", scope_name="conv2")
+        # Layer 2: 64 filters with size 5*5
+        pool2 = max_pool(inputs=conv2, kernel_size=2, stride=2, scope_name="pool2")
+        feature_dim = pool2.shape[1]*pool2.shape[2]*pool2.shape[3]
+        pool2 = tf.reshape(pool2, [-1, feature_dim])
+        fc = fully_connected(inputs=pool2, out_dim=1024)
+        dropout = tf.nn.dropout(tf.nn.relu(fc), keep_prob=self.keep_prob, name="relu_dropout")
+        self.logits = fully_connected(dropout, self.n_classes, "logits")
+
+    def loss(self):
+        with tf.name_scope('loss'):
+            entropy = tf.nn.softmax_cross_entropy_with_logits_v2(labels=self.label, logits=self.logits)
+            self.loss = tf.reduce_mean(entropy, name='loss')
+
+    def optimize(self):
+        self.opt = tf.train.AdamOptimizer(self.lr).minimize(self.loss, global_step=self.gstep)
+
+    def eval(self):
+        with tf.name_scope('predict'):
+            preds = tf.nn.softmax(self.logits)
+            correct_preds = tf.equal(tf.argmax(preds, 1), tf.argmax(self.label, 1))
+            self.accuracy = tf.reduce_sum(tf.cast(correct_preds, tf.float32))
+
+    def build(self):
+        # create nodes
+        self.get_data()
+        self.mnist_model()
+        self.loss()
+        self.optimize()
+        self.eval()
+
+    def train_one_epoch(self, sess, saver, init, epoch, step):
+        sess.run(init)
+        self.training = True
+        total_loss = 0
+        n_batches = 0
+        try:
+            while True:
+                _, l = sess.run([self.opt, self.loss])
+                # call train_one_epoch once, self.opt, self.loss are called once
+                if (step + 1) % self.skip_step == 0:
+                    print('Loss at step {0}: {1}'.format(step, l))
+                step += 1
+                total_loss += l
+                n_batches += 1
+        except tf.errors.OutOfRangeError:
+            pass
+        saver.save(sess, 'checkpoints/convnet_mnist/mnist-convnet', step)
+        print('Average loss at epoch {0}: {1}'.format(epoch, total_loss / n_batches))
+        return step
+
+    def eval_once(self, sess, init, epoch):
+        sess.run(init)
+        self.training = False
+        total_correct_preds = 0
+        try:
+            while True:
+                accuracy_batch = sess.run(self.accuracy)
+                total_correct_preds += accuracy_batch
+        except tf.errors.OutOfRangeError:
+            pass
+        print('Accuracy at epoch {0}: {1} '.format(epoch, total_correct_preds / self.n_test))
+
+    def train(self, n_epochs):
+        # create a directory for ckpt if there isn't one already
+        try:
+            os.mkdir('checkpoints')
+            os.mkdir('checkpoints/convnet_mnist')
+        except OSError:
+            pass
+        writer = tf.summary.FileWriter('./graphs/convnet', tf.get_default_graph())
+        with tf.Session() as sess:
+            sess.run(tf.global_variables_initializer())
+            #sess = tfdbg.LocalCLIDebugWrapperSession(sess, ui_type="readline")
+            saver = tf.train.Saver()
+            ckpt = tf.train.get_checkpoint_state(os.path.dirname('checkpoints/convnet_mnist/checkpoint'))
+            if ckpt and ckpt.model_checkpoint_path:
+                saver.restore(sess, ckpt.model_checkpoint_path)
+            step = self.gstep.eval()
+            for epoch in range(n_epochs):
+                step = self.train_one_epoch(sess, saver, self.train_init, epoch, step)
+                self.eval_once(sess, self.test_init, epoch)
+        writer.close()
+
+
+if __name__ == '__main__':
+    model = cnn_mnist("D:\\HW4\\dataset\\test\\")   # Here, enter the address of test data
+    model.build()
+    model.train(n_epochs=1000)
+
