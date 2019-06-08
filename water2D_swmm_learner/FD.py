@@ -6,6 +6,7 @@
     booktitle={Proceedings of the 35th International Conference on Machine Learning (ICML 2018)},
     year={2018}
 }
+or git clone git@github.com:ZichaoLong/PDE-Net.git
 """
 import numpy as np
 from functools import reduce
