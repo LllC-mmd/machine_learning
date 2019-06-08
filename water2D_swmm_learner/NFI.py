@@ -1,4 +1,13 @@
 """numpy function interface for torch"""
+"""Ref to
+@inproceedings{long2018pde,
+    title={PDE-Net: Learning PDEs from Data},
+    author={Long, Zichao and Lu, Yiping and Ma, Xianzhong and Dong, Bin},
+    booktitle={Proceedings of the 35th International Conference on Machine Learning (ICML 2018)},
+    year={2018}
+}
+or git clone git@github.com:ZichaoLong/PDE-Net.git
+"""
 import torch
 from functools import reduce
 import warnings
