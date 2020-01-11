@@ -2,4 +2,5 @@
 KNN,
 Naive Bayes,
 SVM,
-CNN_MNIST
+CNN_MNIST,
+encoder-decoder
